@@ -172,39 +172,31 @@ def load_file_into_cache(min):
 
 # -----------------------------------------------------------------------------------
 def find_match(t, comment):
-    for tc in comment:
-        if t[:len(tc)] == tc:
-            return True
-    return False
+    return any(t[:len(tc)] == tc for tc in comment)
 
 # -----------------------------------------------------------------------------------
 def find_substr_match(t, comment, sub):
-    for tc in comment:
-        if t.find(tc[sub]) != -1:
-            return True
-        
-    return False
+    return any(t.find(tc[sub]) != -1 for tc in comment)
 
 # -----------------------------------------------------------------------------------
 def run():
     stats = dd(lambda: 0)
     for p in directories:
-        print("DIR ENTER: " + p)
+        print(f"DIR ENTER: {p}")
 
         def safeold(p):
             try:
-                for t in old(p):
-                    yield t
+                yield from old(p)
             except:
-                print("   DIRECTORY IS NOT ACCESSIBLE: " + p)
-        
+                print(f"   DIRECTORY IS NOT ACCESSIBLE: {p}")
+
         for t in safeold(p):
             ful = opj(p, t)
-            
+
             if opid(ful):
                 continue
-                
-            print("   FILE: " + ful)
+
+            print(f"   FILE: {ful}")
             if p in exclude or ful in exclude:
                 print("   SKIPPING FILE - MATCH IN EXCLUDE LIST")
                 continue
@@ -219,134 +211,130 @@ def run():
                 print("   SKIPPING FILE - NO REGEX PATTERN MATCHING")
                 continue
 
-            # read all lines of the input file
-            fin = open(ful, "rt", errors="ignore", encoding=input_encoding[ext])
-            if not fin:
-                print("   FAILURE OPENING FILE")
-                continue
-          
-            fil = fin.readlines()
-            if 0 == len(fil):
-                continue
+            with open(ful, "rt", errors="ignore", encoding=input_encoding[ext]) as fin:
+                if not fin:
+                    print("   FAILURE OPENING FILE")
+                    continue
 
-             # cache comment sequences as tuple
-            comment = comment_indicators[ext]
-            if isinstance(comment, str):
-                comment = (comment,)
+                fil = fin.readlines()
+                if 0 == len(fil):
+                    continue
 
-            ml_comment = multiline_comment_indicators[ext]
-            if isinstance(ml_comment, tuple) and isinstance(ml_comment[0], str):
-                ml_comment = (ml_comment,)
+                comment = comment_indicators[ext]
+                if isinstance(comment, str):
+                    comment = (comment,)
 
-            min = extension_map[ext]
-            if len(min):
-                m = load_file_into_cache(min)    
-                m = m.replace("<name>", t)
+                ml_comment = multiline_comment_indicators[ext]
+                if isinstance(ml_comment, tuple) and isinstance(ml_comment[0], str):
+                    ml_comment = (ml_comment,)
 
-                # Remove the old header: remove everything to the
-                # first non-comment line, skipping maximally one
-                # group of empty lines. This should work fine.
-                #
-                # FIXME: why not simply regex for the old header?
-                # At least optionally this would be a nice feature,
-                # especially as many headers use keywords at their 
-                # start and end respectively.
-                was_empty = outp = incomment = False
-                gcount = 0
-                arr = m + "\n"		    
-                
-                for lins in fil:
-                    if outp:
-                        arr = arr + lins
-                        continue
-                        
-                    if not incomment:
-                        if find_substr_match(lins, ml_comment, 0):
-                            incomment = True
+                min = extension_map[ext]
+                if len(min):
+                    m = load_file_into_cache(min)    
+                    m = m.replace("<name>", t)
 
-                    if incomment:
-                        if find_substr_match(t, ml_comment, 1):
-                            incomment = False
+                    # Remove the old header: remove everything to the
+                    # first non-comment line, skipping maximally one
+                    # group of empty lines. This should work fine.
+                    #
+                    # FIXME: why not simply regex for the old header?
+                    # At least optionally this would be a nice feature,
+                    # especially as many headers use keywords at their 
+                    # start and end respectively.
+                    was_empty = outp = incomment = False
+                    gcount = 0
+                    arr = m + "\n"		    
+
+                    for lins in fil:
+                        if outp:
+                            arr = arr + lins
+                            continue
+
+                        if not incomment:
+                            if find_substr_match(lins, ml_comment, 0):
+                                incomment = True
 
                         if incomment:
-                            continue
-                    
-                    if len(lins.strip()) <= 1:
-                        if not was_empty:
-                            gcount = 1 + gcount
-                        
-                            # for python, we're tolerating one group of some space lines, but
-                            # the second is treated as end of the header section
-                            if gcount > maxemptylines[ext]:
-                                outp = True                       
-                                            
-                            was_empty = True
-                        
-                    else: 
-                        if not find_match(lins, comment):
-                            # non-comment line which is also not empty -> end of header
-                            outp = True
-                            arr = arr + lins
-                        
-                        else:
-                            was_empty = False
-            else:
-                arr = ''.join(fil)
+                            if find_substr_match(t, ml_comment, 1):
+                                incomment = False
 
-            min = footer_extension_map[ext]    
-            if len(min):
-                m = load_file_into_cache(min)    
-                m = m.replace("<name>", t)
+                            if incomment:
+                                continue
 
-                # Split into lines - again. Not efficient, but comfortable.
-                rsplit = list(enumerate(arr.rsplit("\n")))
-                arr = ""
-                incomment = False
-                for i, t in reversed(rsplit):
-                    if not len(t) or ((not incomment) and find_match(t, comment)):
-                        continue
-                    
-                    if not incomment:
-                        if find_substr_match(t, ml_comment, 1):
-                            incomment = True
+                        if len(lins.strip()) <= 1:
+                            if not was_empty:
+                                gcount = 1 + gcount
 
-                    if incomment:
-                        if find_substr_match(t, ml_comment, 0):
-                            incomment = False
+                                # for python, we're tolerating one group of some space lines, but
+                                # the second is treated as end of the header section
+                                if gcount > maxemptylines[ext]:
+                                    outp = True                       
 
-                        continue
-                    #print(t)
-                    # non-comment line
-                    for ii, tt in rsplit: 
-                        arr += tt + "\n"
+                                was_empty = True
 
-                        if ii == i:
-                            break
+                        else: 
+                            if not find_match(lins, comment):
+                                # non-comment line which is also not empty -> end of header
+                                outp = True
+                                arr = arr + lins
 
-                    arr += "\n"
-                    arr += m
-
-                    # append the line feed required by most programming languages
-                    if mixed_options[ext] & OPTION_APPEND_FINAL_LINEFEED:
-                        arr += "\n"
-
-                    break
+                            else:
+                                was_empty = False
                 else:
-                    # not a single non-comment line .. keep the whole file
-                    arr = ''.join(map(lambda x: x[1] + '\n', rsplit))
-                             
-            # fix line feeds
-            arr.replace('\n', output_linefeed[ext])
+                    arr = ''.join(fil)
 
-            fin.close()
-            fin = open(ful, "w", encoding=output_encoding[ext], errors="ignore")
-            fin.write(arr)
-              
-            fin.close()
+                min = footer_extension_map[ext]
+                if len(min):
+                    m = load_file_into_cache(min)    
+                    m = m.replace("<name>", t)
+
+                    # Split into lines - again. Not efficient, but comfortable.
+                    rsplit = list(enumerate(arr.rsplit("\n")))
+                    arr = ""
+                    incomment = False
+                    for i, t in reversed(rsplit):
+                        if not len(t) or ((not incomment) and find_match(t, comment)):
+                            continue
+
+                        if not incomment:
+                            if find_substr_match(t, ml_comment, 1):
+                                incomment = True
+
+                        if incomment:
+                            if find_substr_match(t, ml_comment, 0):
+                                incomment = False
+
+                            continue
+                        #print(t)
+                        # non-comment line
+                        for ii, tt in rsplit: 
+                            arr += tt + "\n"
+
+                            if ii == i:
+                                break
+
+                        arr += "\n"
+                        arr += m
+
+                        # append the line feed required by most programming languages
+                        if mixed_options[ext] & OPTION_APPEND_FINAL_LINEFEED:
+                            arr += "\n"
+
+                        break
+                    else:
+                        # not a single non-comment line .. keep the whole file
+                        arr = ''.join(map(lambda x: x[1] + '\n', rsplit))
+
+                # fix line feeds
+                arr.replace('\n', output_linefeed[ext])
+
+            with open(ful, "w", encoding=output_encoding[ext], errors="ignore") as fin:
+                fin.write(arr)
+
             print("   SUCCESS")
             stats[ext] = stats[ext] + 1
-                
-        print("DIR LEAVE: " + p)
+
+        print(f"DIR LEAVE: {p}")
 
     print("")
     # finally, print out file statistics
